@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #10221c;
+  color: #e8edf2;
+  overflow-x: hidden;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(111, 214, 176, 0.35);
+}
+
+.pomodoro-pulse {
+  animation: pomodoro-finish-pulse 900ms ease both;
+}
+
+.pomodoro-focus-mode {
+  cursor: none;
+}
+
+.pomodoro-focus-mode button,
+.pomodoro-focus-mode input {
+  cursor: pointer;
+}
+
+@keyframes pomodoro-finish-pulse {
+  0%,
+  100% {
+    box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.3);
+    transform: scale(1);
+  }
+  45% {
+    box-shadow: 0 1.5rem 5.5rem color-mix(in srgb, var(--timer-primary) 35%, transparent);
+    transform: scale(1.01);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
