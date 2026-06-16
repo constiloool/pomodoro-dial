@@ -37,11 +37,33 @@ input {
 
 .pomodoro-focus-mode {
   cursor: none;
+  height: 100vh;
+  max-height: 100vh;
+  overscroll-behavior: none;
+}
+
+.pomodoro-focus-dial {
+  position: fixed;
+  left: 50vw;
+  top: 50vh;
+  width: min(94vmin, 58rem);
+  max-width: none;
+  transform: translate(-50%, -50%);
 }
 
 .pomodoro-focus-mode button,
 .pomodoro-focus-mode input {
   cursor: pointer;
+}
+
+.pomodoro-focus-controls {
+  opacity: 0.28;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.pomodoro-focus-controls:hover,
+.pomodoro-focus-controls:focus-within {
+  opacity: 1;
 }
 
 @keyframes pomodoro-finish-pulse {
