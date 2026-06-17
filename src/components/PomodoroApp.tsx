@@ -143,10 +143,11 @@ export function PomodoroApp() {
   const [completedFocusSessions, setCompletedFocusSessions] = useState(0);
   const [theme, setTheme] = useState<ThemeSettings>(presets[0].settings);
   const [showSettings, setShowSettings] = useState(false);
-  const [isFocusMode, setIsFocusMode] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
   const intervalRef = useRef<number | null>(null);
+  const timerContainerRef = useRef<HTMLElement | null>(null);
 
   const progress = Math.max(0, Math.min(1, remainingSeconds / activeDurationSeconds));
   const elapsedDegrees = 360 - progress * 360;
@@ -199,6 +200,31 @@ export function PomodoroApp() {
       }
     }
   };
+
+  const clearFullscreenSideEffects = useCallback(() => {
+    document.body.classList.remove("fullscreen-active");
+    document.body.style.overflow = "";
+    document.body.style.cursor = "";
+    document.documentElement.style.overflow = "";
+    document.documentElement.style.cursor = "";
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        return;
+      }
+
+      setShowSettings(false);
+      await (timerContainerRef.current ?? document.documentElement).requestFullscreen();
+    } catch {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      if (!document.fullscreenElement) {
+        clearFullscreenSideEffects();
+      }
+    }
+  }, [clearFullscreenSideEffects]);
 
   const completeSession = useCallback(() => {
     playFinishTone();
@@ -277,6 +303,29 @@ export function PomodoroApp() {
   }, [completeSession, isRunning]);
 
   useEffect(() => {
+    const handleFullscreenChange = () => {
+      const nextIsFullscreen = Boolean(document.fullscreenElement);
+      setIsFullscreen(nextIsFullscreen);
+
+      if (nextIsFullscreen) {
+        setShowSettings(false);
+        document.body.classList.add("fullscreen-active");
+        return;
+      }
+
+      clearFullscreenSideEffects();
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    handleFullscreenChange();
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      clearFullscreenSideEffects();
+    };
+  }, [clearFullscreenSideEffects]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT") return;
@@ -291,38 +340,24 @@ export function PomodoroApp() {
       }
 
       if (event.key.toLowerCase() === "f") {
-        setIsFocusMode((value) => !value);
+        void toggleFullscreen();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [resetCurrentMode]);
+  }, [resetCurrentMode, toggleFullscreen]);
 
   const skipSession = () => {
     const nextMode = getNextMode(mode, completedFocusSessions, timeSettings);
     switchMode(nextMode, false);
   };
 
-  const toggleFullscreen = async () => {
-    setIsFocusMode((value) => !value);
-
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
-      }
-    } catch {
-      // The in-app focus mode still works when browser fullscreen is blocked.
-    }
-  };
-
   return (
-    <main className={`min-h-screen overflow-x-hidden px-4 py-5 text-[var(--timer-text)] sm:px-6 lg:px-8 ${isFocusMode ? "pomodoro-focus-mode fixed inset-0 !p-0" : ""}`} style={themeStyle}>
+    <main ref={timerContainerRef} className={`min-h-screen overflow-x-hidden px-4 py-5 text-[var(--timer-text)] sm:px-6 lg:px-8 ${isFullscreen ? "pomodoro-focus-mode fixed inset-0 !p-0" : ""}`} style={themeStyle}>
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,color-mix(in_srgb,var(--timer-primary)_28%,transparent),transparent_34%),radial-gradient(circle_at_bottom_right,color-mix(in_srgb,var(--timer-accent)_24%,transparent),transparent_38%),linear-gradient(135deg,var(--app-bg),#07080b_72%)]" />
-      <div className={`${isFocusMode ? "grid h-screen w-screen place-items-center overflow-hidden" : "mx-auto flex min-h-[calc(100vh-2.5rem)] w-full max-w-7xl flex-col gap-5"}`}>
-        <header className={`flex items-center justify-between gap-3 ${isFocusMode ? "hidden" : ""}`}>
+      <div className={`${isFullscreen ? "grid h-screen w-screen place-items-center overflow-hidden" : "mx-auto flex min-h-[calc(100vh-2.5rem)] w-full max-w-7xl flex-col gap-5"}`}>
+        <header className={`flex items-center justify-between gap-3 ${isFullscreen ? "hidden" : ""}`}>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[color-mix(in_srgb,var(--timer-text)_68%,transparent)]">Pomodoro Dial</p>
             <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Deep Work Timer</h1>
@@ -332,10 +367,10 @@ export function PomodoroApp() {
           </button>
         </header>
 
-        <section className={`${isFocusMode ? "relative grid h-screen w-screen place-items-center overflow-hidden" : "grid flex-1 items-center gap-5 lg:grid-cols-[1fr_380px]"}`}>
-          <div className={`${pulse ? "pomodoro-pulse" : ""} ${isFocusMode ? "grid h-screen w-screen place-items-center overflow-hidden bg-transparent p-0" : "relative overflow-hidden rounded-[2rem] border border-white/12 bg-white/[0.08] p-4 shadow-2xl shadow-black/30 backdrop-blur-2xl sm:p-7 lg:p-10"}`}>
-            <div className={`mx-auto flex flex-col items-center ${isFocusMode ? "h-screen w-screen justify-center" : "max-w-3xl"}`}>
-              <div className={`mb-5 flex rounded-full border border-white/12 bg-black/20 p-1 ${isFocusMode ? "hidden" : ""}`}>
+        <section className={`${isFullscreen ? "relative grid h-screen w-screen place-items-center overflow-hidden" : "grid flex-1 items-center gap-5 lg:grid-cols-[1fr_380px]"}`}>
+          <div className={`${pulse ? "pomodoro-pulse" : ""} ${isFullscreen ? "grid h-screen w-screen place-items-center overflow-hidden bg-transparent p-0" : "relative overflow-hidden rounded-[2rem] border border-white/12 bg-white/[0.08] p-4 shadow-2xl shadow-black/30 backdrop-blur-2xl sm:p-7 lg:p-10"}`}>
+            <div className={`mx-auto flex flex-col items-center ${isFullscreen ? "h-screen w-screen justify-center" : "max-w-3xl"}`}>
+              <div className={`mb-5 flex rounded-full border border-white/12 bg-black/20 p-1 ${isFullscreen ? "hidden" : ""}`}>
                 {(["focus", "short", "long"] as TimerMode[]).map((timerMode) => (
                   <button
                     key={timerMode}
@@ -347,9 +382,9 @@ export function PomodoroApp() {
                 ))}
               </div>
 
-              <p className={`${isFocusMode ? "absolute top-8 text-base md:top-10" : "mb-4 text-sm"} rounded-full border border-white/12 bg-black/20 px-4 py-2 font-semibold text-[color-mix(in_srgb,var(--timer-text)_82%,transparent)]`}>{modeLabels[mode]}</p>
+              <p className={`${isFullscreen ? "absolute top-8 text-base md:top-10" : "mb-4 text-sm"} rounded-full border border-white/12 bg-black/20 px-4 py-2 font-semibold text-[color-mix(in_srgb,var(--timer-text)_82%,transparent)]`}>{modeLabels[mode]}</p>
 
-              <div className={`relative grid aspect-square place-items-center ${isFocusMode ? "pomodoro-focus-dial" : "w-full max-w-[min(72vw,32rem)] sm:max-w-[34rem]"}`}>
+              <div className={`relative grid aspect-square place-items-center ${isFullscreen ? "pomodoro-focus-dial" : "w-full max-w-[min(72vw,32rem)] sm:max-w-[34rem]"}`}>
                 <div
                   className="absolute inset-0 rounded-full shadow-[inset_0_1.2rem_2.8rem_rgba(255,255,255,0.12),inset_0_-2rem_3rem_rgba(0,0,0,0.34),0_2rem_4rem_rgba(0,0,0,0.3)]"
                   style={{
@@ -359,12 +394,12 @@ export function PomodoroApp() {
                 <div className="absolute inset-[7%] rounded-full border border-white/15 bg-[radial-gradient(circle_at_35%_24%,rgba(255,255,255,0.18),transparent_28%),linear-gradient(145deg,rgba(0,0,0,0.34),rgba(255,255,255,0.08))]" />
                 <div className="absolute inset-[13%] rounded-full border border-black/25 bg-[color-mix(in_srgb,var(--app-bg)_78%,black)] shadow-[inset_0_1rem_2rem_rgba(0,0,0,0.38)]" />
                 <div className="relative z-10 text-center">
-                  <div className={`font-mono font-bold leading-none tracking-normal text-[var(--timer-text)] drop-shadow-[0_0_2rem_color-mix(in_srgb,var(--timer-primary)_38%,transparent)] ${isFocusMode ? "text-[clamp(5rem,18vmin,13rem)]" : "text-[clamp(4.5rem,17vw,10rem)]"}`}>{formatTime(remainingSeconds)}</div>
-                  <p className={`${isFocusMode ? "mt-5 text-base" : "mt-4 text-sm"} font-semibold uppercase tracking-[0.24em] text-[color-mix(in_srgb,var(--timer-text)_62%,transparent)]`}>{Math.round(progress * 100)}% remaining</p>
+                  <div className={`font-mono font-bold leading-none tracking-normal text-[var(--timer-text)] drop-shadow-[0_0_2rem_color-mix(in_srgb,var(--timer-primary)_38%,transparent)] ${isFullscreen ? "text-[clamp(5rem,18vmin,13rem)]" : "text-[clamp(4.5rem,17vw,10rem)]"}`}>{formatTime(remainingSeconds)}</div>
+                  <p className={`${isFullscreen ? "mt-5 text-base" : "mt-4 text-sm"} font-semibold uppercase tracking-[0.24em] text-[color-mix(in_srgb,var(--timer-text)_62%,transparent)]`}>{Math.round(progress * 100)}% remaining</p>
                 </div>
               </div>
 
-              <div className={`${isFocusMode ? "pomodoro-focus-controls absolute bottom-6 left-1/2 -translate-x-1/2" : "mt-7"} flex w-full flex-wrap items-center justify-center gap-3`}>
+              <div className={`${isFullscreen ? "pomodoro-focus-controls absolute bottom-6 left-1/2 -translate-x-1/2" : "mt-7"} flex w-full flex-wrap items-center justify-center gap-3`}>
                 <button className="inline-flex min-h-12 items-center gap-2 rounded-full bg-[var(--timer-primary)] px-6 py-3 font-bold text-black shadow-xl shadow-black/25 transition hover:scale-[1.02]" onClick={() => setIsRunning((value) => !value)}>
                   {isRunning ? <Pause size={20} /> : <Play size={20} />}
                   {isRunning ? "Pause" : "Start"}
@@ -373,19 +408,19 @@ export function PomodoroApp() {
                   <RotateCcw size={18} />
                   Reset
                 </button>
-                <button className={`min-h-12 items-center gap-2 rounded-full border border-white/14 bg-white/10 px-5 py-3 font-semibold backdrop-blur transition hover:bg-white/16 ${isFocusMode ? "hidden sm:inline-flex" : "inline-flex"}`} onClick={skipSession}>
+                <button className={`min-h-12 items-center gap-2 rounded-full border border-white/14 bg-white/10 px-5 py-3 font-semibold backdrop-blur transition hover:bg-white/16 ${isFullscreen ? "hidden sm:inline-flex" : "inline-flex"}`} onClick={skipSession}>
                   <SkipForward size={18} />
                   Skip
                 </button>
-                <button className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/14 bg-white/10 px-5 py-3 font-semibold backdrop-blur transition hover:bg-white/16" onClick={toggleFullscreen} aria-label={isFocusMode ? "Exit focus mode" : "Enter focus mode"}>
-                  {isFocusMode ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                  {isFocusMode ? "Exit" : "Focus"}
+                <button className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/14 bg-white/10 px-5 py-3 font-semibold backdrop-blur transition hover:bg-white/16" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit focus mode" : "Enter focus mode"}>
+                  {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                  {isFullscreen ? "Exit" : "Focus"}
                 </button>
               </div>
             </div>
           </div>
 
-          <aside className={`${isFocusMode ? "hidden" : showSettings ? "block" : "hidden lg:block"} rounded-[1.5rem] border border-white/12 bg-black/20 p-5 shadow-2xl shadow-black/20 backdrop-blur-2xl lg:self-stretch`}>
+          <aside className={`${isFullscreen ? "hidden" : showSettings ? "block" : "hidden lg:block"} rounded-[1.5rem] border border-white/12 bg-black/20 p-5 shadow-2xl shadow-black/20 backdrop-blur-2xl lg:self-stretch`}>
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[color-mix(in_srgb,var(--timer-text)_58%,transparent)]">Customize</p>
