@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BarChart3,
   Check,
   Clock3,
   Maximize2,
@@ -32,6 +33,13 @@ type TimeSettings = {
 };
 
 type TimeSettingKey = keyof TimeSettings;
+
+type PhaseStatistics = {
+  sessions: number;
+  seconds: number;
+};
+
+type TimerStatistics = Record<TimerMode, PhaseStatistics>;
 
 const defaultTimeSettings: TimeSettings = {
   focus: 25,
@@ -74,6 +82,12 @@ const presets: Array<{ name: string; settings: ThemeSettings }> = [
 
 const themeStorageKey = "pomodoro-theme-settings";
 const timeStorageKey = "pomodoro-time-settings";
+const statisticsStorageKey = "pomodoro-timer-statistics";
+const defaultStatistics: TimerStatistics = {
+  focus: { sessions: 0, seconds: 0 },
+  short: { sessions: 0, seconds: 0 },
+  long: { sessions: 0, seconds: 0 }
+};
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -100,6 +114,30 @@ function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
+
+function formatTrackedTime(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (hours > 0) return `${hours} h ${minutes} min`;
+  if (minutes > 0) return `${minutes} min ${remainingSeconds} sec`;
+  return `${remainingSeconds} sec`;
+}
+
+function sanitizeStatistics(statistics: Partial<Record<TimerMode, Partial<PhaseStatistics>>>): TimerStatistics {
+  return (["focus", "short", "long"] as TimerMode[]).reduce<TimerStatistics>(
+    (nextStatistics, timerMode) => {
+      const savedPhase = statistics[timerMode];
+      nextStatistics[timerMode] = {
+        sessions: Math.max(0, Math.floor(Number(savedPhase?.sessions) || 0)),
+        seconds: Math.max(0, Math.floor(Number(savedPhase?.seconds) || 0))
+      };
+      return nextStatistics;
+    },
+    structuredClone(defaultStatistics)
+  );
 }
 
 function getNextMode(currentMode: TimerMode, completedFocusSessions: number, settings: TimeSettings): TimerMode {
@@ -146,6 +184,7 @@ export function PomodoroApp() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
+  const [statistics, setStatistics] = useState<TimerStatistics>(defaultStatistics);
   const intervalRef = useRef<number | null>(null);
   const timerContainerRef = useRef<HTMLElement | null>(null);
 
@@ -230,6 +269,13 @@ export function PomodoroApp() {
     playFinishTone();
     setPulse(true);
     window.setTimeout(() => setPulse(false), 900);
+    setStatistics((currentStatistics) => ({
+      ...currentStatistics,
+      [mode]: {
+        ...currentStatistics[mode],
+        sessions: currentStatistics[mode].sessions + 1
+      }
+    }));
 
     setCompletedFocusSessions((sessions) => {
       const updatedSessions = mode === "focus" ? sessions + 1 : sessions;
@@ -266,6 +312,15 @@ export function PomodoroApp() {
       }
     }
 
+    const savedStatistics = window.localStorage.getItem(statisticsStorageKey);
+    if (savedStatistics) {
+      try {
+        setStatistics(sanitizeStatistics(JSON.parse(savedStatistics) as Partial<Record<TimerMode, Partial<PhaseStatistics>>>));
+      } catch {
+        window.localStorage.removeItem(statisticsStorageKey);
+      }
+    }
+
     setHasLoadedSettings(true);
   }, []);
 
@@ -280,12 +335,25 @@ export function PomodoroApp() {
   }, [hasLoadedSettings, timeSettings]);
 
   useEffect(() => {
+    if (!hasLoadedSettings) return;
+    window.localStorage.setItem(statisticsStorageKey, JSON.stringify(statistics));
+  }, [hasLoadedSettings, statistics]);
+
+  useEffect(() => {
     if (!isRunning) {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
       return;
     }
 
     intervalRef.current = window.setInterval(() => {
+      setStatistics((currentStatistics) => ({
+        ...currentStatistics,
+        [mode]: {
+          ...currentStatistics[mode],
+          seconds: currentStatistics[mode].seconds + 1
+        }
+      }));
+
       setRemainingSeconds((seconds) => {
         if (seconds <= 1) {
           if (intervalRef.current) window.clearInterval(intervalRef.current);
@@ -300,7 +368,7 @@ export function PomodoroApp() {
     return () => {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
     };
-  }, [completeSession, isRunning]);
+  }, [completeSession, isRunning, mode]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -462,6 +530,37 @@ export function PomodoroApp() {
               <p className="mt-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3 text-sm leading-6 text-[color-mix(in_srgb,var(--timer-text)_68%,transparent)]">
                 Saved changes apply immediately while paused. During a running session, use Reset, Skip, or the next phase to start with the new timing.
               </p>
+            </section>
+
+            <section className="mt-7">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <BarChart3 size={18} />
+                  <h3 className="font-semibold">Time Tracking</h3>
+                </div>
+                <button
+                  className="text-xs font-semibold text-[color-mix(in_srgb,var(--timer-text)_62%,transparent)] transition hover:text-[var(--timer-text)]"
+                  onClick={() => setStatistics(structuredClone(defaultStatistics))}
+                  type="button"
+                >
+                  Reset stats
+                </button>
+              </div>
+              <div className="grid gap-3">
+                {(["focus", "short", "long"] as TimerMode[]).map((timerMode) => (
+                  <div key={timerMode} className="grid grid-cols-[1fr_auto] items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                    <div>
+                      <p className="text-sm font-semibold">{modeLabels[timerMode]}</p>
+                      <p className="mt-1 text-xs text-[color-mix(in_srgb,var(--timer-text)_58%,transparent)]">
+                        {statistics[timerMode].sessions} completed {statistics[timerMode].sessions === 1 ? "session" : "sessions"}
+                      </p>
+                    </div>
+                    <p className="font-mono text-sm font-bold text-[var(--timer-primary)]">
+                      {formatTrackedTime(statistics[timerMode].seconds)}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </section>
 
             <section className="mt-7">
